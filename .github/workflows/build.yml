@@ -21,7 +21,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     env:
-      CURL: "curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused"
+      CURL: "curl -fsSL --connect-timeout 10 --max-time 60 --retry 1"
     steps:
       - name: Checkout codebase
         uses: actions/checkout@v6
