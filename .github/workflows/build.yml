@@ -106,13 +106,16 @@ jobs:
         run: |
           set -euo pipefail
           go mod download
-          go build -o ../geoip
-        
+          # Собираем бинарник внутри папки geoip под уникальным именем geoip-bin
+          go build -o geoip-bin
+
       - name: Generate geoip artifacts
+        working-directory: geoip
         run: |
           set -euo pipefail
           rm -rf output
-          ./geoip convert -c config.json
+          # Запускаем утилиту там же, где лежат все скачанные файлы .txt и .lst
+          ./geoip-bin convert -c config.json
           ls -l output/dat/*.dat
 
       - name: main Prepare release directory and archives
