@@ -60,18 +60,23 @@
       "type": "v2rayGeoIPDat",
       "action": "output",
       "args": {
-        "outputDir": "./output",
-        "outputName": "geoip.dat",
-        "wantedList": ["ru", "by", "telegram", "netflix", "twitter", "facebook", "private"]
+        "outputName": "geoip.dat"
       }
     },
     {
       "type": "text",
       "action": "output",
       "args": {
-        "outputDir": "./output/text",
-        "wantedList": ["ru", "by", "telegram", "netflix", "twitter", "facebook", "private"]
-      }
+        "outputDir": "./output/text"
+    },
+    {
+      "type": "mihomoMRS",
+      "action": "output"
+    },
+    {
+      "type": "singboxSRS",
+      "action": "output"
+    }
     }
   ]
 }
