@@ -287,8 +287,8 @@
       "type": "text",
       "action": "add",
       "args": {
-        "name": "whitelist",
-        "uri": "./custom_whitelist.txt"
+        "name": "additional",
+        "uri": "./additional.txt"
       }
     },
     {
