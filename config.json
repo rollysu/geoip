@@ -68,6 +68,7 @@
       "action": "output",
       "args": {
         "outputDir": "./output/text"
+    }
     },
     {
       "type": "mihomoMRS",
