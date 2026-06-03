@@ -67,6 +67,37 @@ jobs:
           cd geoip-src
           ./geoip convert -c config.json
 
+      - name: MASTER Prepare release directory and archives
+        # Меняем на main, так как воркфлоу настроен на ветку main
+        if: github.ref_name == 'main' 
+        run: |
+          set -euo pipefail
+          
+          rm -rf release
+          mkdir -p release/text release/mihomo release/sing-box
+
+          if [ -f geoip-src/output/geoip.dat ]; then
+            cp geoip-src/output/geoip.dat release/
+          fi
+
+          find geoip/ -type f -name "*.txt" -exec cp {} release/text/ \; 2>/dev/null || true
+          find geoip/ -type f -name "*.yaml" -exec cp {} release/mihomo/ \; 2>/dev/null || true
+          find geoip/ -type f -name "*.mrs" -exec cp {} release/mihomo/ \; 2>/dev/null || true
+          find geoip/ -type f -name "*.srs" -exec cp {} release/sing-box/ \; 2>/dev/null || true
+
+          rm -f /tmp/text.tar.gz /tmp/mihomo.tar.gz /tmp/sing-box.tar.gz
+          tar -czf /tmp/text.tar.gz     -C release text
+          tar -czf /tmp/mihomo.tar.gz   -C release mihomo
+          tar -czf /tmp/sing-box.tar.gz -C release sing-box
+
+          test -s /tmp/text.tar.gz
+          test -s /tmp/mihomo.tar.gz
+          test -s /tmp/sing-box.tar.gz
+
+          if [ -f release/geoip.dat ]; then
+            sha256sum release/geoip.dat > release/geoip.dat.sha256
+          fi
+
       - name: Push generated rules to repository
         run: |
           set -euo pipefail
