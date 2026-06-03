@@ -68,14 +68,6 @@ jobs:
               ref: `refs/tags/${DAILY_TAG}`,
               sha: context.sha
             })
-
-      - name: Find the culprit
-        run: grep -rn "ADDITIONAL" . || true
-
-      - name: Run geoip convert
-        run: |
-          set -euo pipefail
-          ./geoip convert -c config.json
         
       - name: Download inputs (IP lists + Geobases)
         working-directory: geoip
@@ -114,10 +106,15 @@ jobs:
         run: |
           set -euo pipefail
           go mod download
-          go build -o geoip
+          go build -o ../geoip
 
+      - name: Find the culprit
+        run: |
+          echo "=== Ищем слово ADDITIONAL во всех файлах ==="
+          grep -rn "ADDITIONAL" . || true
+          echo "=========================================="
+        
       - name: Generate geoip artifacts
-        working-directory: geoip
         run: |
           set -euo pipefail
           rm -rf output
