@@ -175,14 +175,6 @@
     },
     {
       "type": "text",
-      "action": "add",
-      "args": {
-        "name": "direct",
-        "uri": "./direct.txt"
-      }
-    },
-    {
-      "type": "text",
       "action": "remove",
       "args": {
         "name": "direct",
@@ -281,14 +273,6 @@
         "name": "whitelist",
         "uri": "./whitelist.txt",
         "onlyIPType": "ipv4"
-      }
-    },
-    {
-      "type": "text",
-      "action": "add",
-      "args": {
-        "name": "additional",
-        "uri": "./additional.txt"
       }
     },
     {
