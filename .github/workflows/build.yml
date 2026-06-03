@@ -149,6 +149,7 @@ jobs:
           git commit -m "Release ${{ env.DAILY_TAG }}"
           git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
           git push -f -u origin release
+          rm -rf .git
           cd .. || exit 1
           git config --local user.name "${{ github.actor }}"
           git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
