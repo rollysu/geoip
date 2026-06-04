@@ -1,0 +1,230 @@
+name: Build geoip
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '10 3 * * *'
+  push:
+    branches:
+      - test
+      - main
+    paths-ignore:
+      - "README.md"
+      - ".gitignore"
+      - "LICENSE"
+      - "release/**"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    env:
+      CURL: "curl -fsSL --connect-timeout 10 --max-time 60 --retry 1"
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Checkout Loyalsoldier/geoip
+        uses: actions/checkout@v6
+        with:
+          repository: Loyalsoldier/geoip
+          path: geoip
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: geoip/go.mod
+          cache: true
+          cache-dependency-path: geoip/go.sum
+
+      - name: Overlay custom files over geoip
+        run: |
+          set -euo pipefail
+          cp -f ./*.json geoip/ 2>/dev/null || true
+          cp -f ./*.txt  geoip/ 2>/dev/null || true
+          cp -f ./*.py   geoip/ 2>/dev/null || true
+
+      - name: Set tag
+        if: github.ref_name == 'main'
+        run: |
+          set -euo pipefail
+          DAILY_TAG=$(date +%Y%m%d%H%M)
+          echo "DAILY_TAG=$DAILY_TAG" >> "$GITHUB_ENV"
+
+      - name: Create Tag
+        if: github.ref_name == 'main'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { DAILY_TAG } = process.env
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${DAILY_TAG}`,
+              sha: context.sha
+            })
+        
+      - name: Download inputs (IP lists + Geobases)
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          ${{ env.CURL }} -o whitelist.txt https://raw.githubusercontent.com/escapingworm/russia-whitelist/refs/heads/main/ru-whitelist-cidr.txt || touch whitelist.txt
+          ${{ env.CURL }} -o antifilterdownloadcommunity.txt https://community.antifilter.download/list/community.lst || touch antifilterdownloadcommunity.txt
+          ${{ env.CURL }} -o refilter.txt https://raw.githubusercontent.com/1andrevich/Re-filter-lists/refs/heads/main/ipsum.lst || touch refilter.txt
+          ${{ env.CURL }} -o refiltercommunity.txt https://raw.githubusercontent.com/1andrevich/Re-filter-lists/refs/heads/main/community_ips.lst || touch refiltercommunity.txt
+          ${{ env.CURL }} -o antifilternetwork.txt https://antifilter.network/download/ip.lst || touch antifilternetwork.txt
+          ${{ env.CURL }} -o antifilternetworkcommunity.txt https://antifilter.network/downloads/custom.lst || touch antifilternetworkcommunity.txt
+          ${{ env.CURL }} -o cdn.lst https://raw.githubusercontent.com/mansourjabin/cdn-ip-database/refs/heads/main/data/cdn.lst || touch cdn.lst
+          ${{ env.CURL }} -o merged.sum https://raw.githubusercontent.com/PentiumB/CDN-RuleSet/refs/heads/main/release/merged.sum || touch merged.sum
+          ${{ env.CURL }} -o geolite_ru.lst https://raw.githubusercontent.com/rollysu/country/main/db/geolite2-geo-whois-asn-country-ipv4/ru.lst || touch geolite_ru.lst
+          ${{ env.CURL }} -o geolite_by.lst https://raw.githubusercontent.com/rollysu/country/main/db/geolite2-geo-whois-asn-country-ipv4/by.lst || touch geolite_by.lst
+          ${{ env.CURL }} -o geolite_kz.lst https://raw.githubusercontent.com/rollysu/country/main/db/geolite2-geo-whois-asn-country-ipv4/kz.lst || touch geolite_kz.lst
+          ${{ env.CURL }} -o ipinfo_ru.lst https://raw.githubusercontent.com/Davoyan/ipinfo/refs/heads/main/geo/geoip/ru.lst || touch ipinfo_ru.lst
+          ${{ env.CURL }} -o ipinfo_by.lst https://raw.githubusercontent.com/Davoyan/ipinfo/refs/heads/main/geo/geoip/by.lst || touch ipinfo_by.lst
+          ${{ env.CURL }} -o ipinfo_kz.lst https://raw.githubusercontent.com/Davoyan/ipinfo/refs/heads/main/geo/geoip/kz.lst || touch ipinfo_kz.lst
+          ${{ env.CURL }} -o dbip_ru.lst https://raw.githubusercontent.com/rollysu/country/main/db/dbip-country-ipv4/ru.lst || touch dbip_ru.lst
+          ${{ env.CURL }} -o dbip_by.lst https://raw.githubusercontent.com/rollysu/country/main/db/dbip-country-ipv4/by.lst || touch dbip_by.lst
+          ${{ env.CURL }} -o dbip_kz.lst https://raw.githubusercontent.com/rollysu/country/main/db/dbip-country-ipv4/kz.lst || touch dbip_kz.lst
+          
+          if ${{ env.CURL }} -o /tmp/GeoLite2-ASN-CSV.zip https://dl.netsyms.net/dbs/geolite2/GeoLite2-ASN-CSV.zip; then
+            unzip -j /tmp/GeoLite2-ASN-CSV.zip '*/GeoLite2-ASN-Blocks-*.csv' -d ./geolite2
+          else
+            echo "⚠️ GeoLite2 ASN ZIP download failed. Creating empty fallback files."
+            mkdir -p ./geolite2
+            touch ./geolite2/GeoLite2-ASN-Blocks-IPv4.csv
+            touch ./geolite2/GeoLite2-ASN-Blocks-IPv6.csv
+          fi
+          ls -l ./geolite2/
+
+      - name: Build geoip tool
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          go mod download
+          # Собираем бинарник внутри папки geoip под уникальным именем geoip-bin
+          go build -o geoip-bin
+
+      - name: Generate geoip artifacts
+        working-directory: geoip
+        run: |
+          set -euo pipefail
+          rm -rf output
+          # Запускаем утилиту там же, где лежат все скачанные файлы .txt и .lst
+          ./geoip-bin convert -c config.json
+          ls -l output/dat/*.dat
+
+      - name: main Prepare release directory and archives
+        if: github.ref_name == 'main'
+        run: |
+          set -euo pipefail
+          rm -rf release
+          mkdir -p release/text release/mihomo release/sing-box
+          cp geoip/output/dat/*.dat release/
+          cp -f geoip/output/text/*.txt release/text/
+          cp -f geoip/output/mrs/*.mrs   release/mihomo/
+          cp -f geoip/output/srs/*.srs   release/sing-box/
+          rm -f /tmp/text.tar.gz /tmp/mihomo.tar.gz /tmp/sing-box.tar.gz
+          tar -czf /tmp/text.tar.gz     -C release text
+          tar -czf /tmp/mihomo.tar.gz   -C release mihomo
+          tar -czf /tmp/sing-box.tar.gz -C release sing-box
+          test -s /tmp/text.tar.gz
+          test -s /tmp/mihomo.tar.gz
+          test -s /tmp/sing-box.tar.gz
+          sha256sum release/geoip.dat > release/geoip.dat.sha256
+
+      - name: main Push to release branch and update main
+        if: github.ref_name == 'main'
+        run: |
+          cd release || exit 1
+          git init
+          git config --local user.name "${{ github.actor }}"
+          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git checkout -b release
+          git add -A
+          git commit -m "Release ${{ env.DAILY_TAG }}"
+          git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          git push -f -u origin release
+          rm -rf .git
+          cd .. || exit 1
+          git config --local user.name "${{ github.actor }}"
+          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git checkout main
+          git add release/
+          git commit -m "Release ${{ env.DAILY_TAG }}" || echo "No changes to commit"
+          git push origin main
+
+      - name: main Publish GitHub Release
+        if: github.ref_name == 'main'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.DAILY_TAG }}
+          name: ${{ env.DAILY_TAG }}
+          prerelease: false
+          draft: false
+          files: |
+            release/*.dat
+            release/*.dat.sha256
+            /tmp/mihomo.tar.gz
+            /tmp/sing-box.tar.gz
+            /tmp/text.tar.gz
+
+      - name: main Purge CDN for release and updated main branches
+        if: github.ref_name == 'main'
+        run: |
+          set -euo pipefail
+          cd release || exit 1
+          find . -type f -not -path "./.git/*" -print0 | while IFS= read -r -d '' f; do
+            rel="${f#./}"
+            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}/release/${rel}"
+            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@main/release/${rel}"
+            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/${rel}"
+            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@${{ env.DAILY_TAG }}/release/${rel}"
+          done
+
+      - name: TEST Prepare release directory
+        if: github.ref_name == 'test'
+        run: |
+          set -euo pipefail
+          rm -rf release
+          mkdir -p release/text release/mihomo release/sing-box
+          cp geoip/output/dat/*.dat release/
+          cp -f geoip/output/text/*.txt release/text/
+          cp -f geoip/output/mrs/*.mrs   release/mihomo/
+          cp -f geoip/output/srs/*.srs   release/sing-box/
+          sha256sum release/geoip.dat > release/geoip.dat.sha256
+
+      - name: TEST Push to test-release branch & update test branch
+        if: github.ref_name == 'test'
+        run: |
+          cd release || exit 1
+          git init
+          git config --local user.name "${{ github.actor }}"
+          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git checkout -b test-release
+          git add -A
+          git commit -m "Test Release $(date -u +%Y%m%d%H%M)"
+          git remote add origin "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          git push -f -u origin test-release
+          cd .. || exit 1
+          git config --local user.name "${{ github.actor }}"
+          git config --local user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git checkout -B test
+          git add release/
+          git commit -m "Test Release $(date -u +%Y%m%d%H%M)" || echo "No changes to commit"
+          git push origin test
+
+      - name: TEST Purge CDN for test-release and updated test branches
+        if: github.ref_name == 'test'
+        run: |
+          set -euo pipefail
+          cd release || exit 1
+          find . -type f -not -path "./.git/*" -print0 | while IFS= read -r -d '' f; do
+            rel="${f#./}"
+            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@test/release/${rel}"
+            ${{ env.CURL }} -i "https://purge.jsdelivr.net/gh/${{ github.repository }}@test-release/${rel}"
+          done
